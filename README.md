@@ -1,5 +1,6 @@
 [README (1).md](https://github.com/user-attachments/files/34116945/README.1.md)
-# OHS Agent: AI Agent for Occupational Health & Safety Monitoring
+# SafeSense AI: Intelligent Industrial Safety Monitoring
+Developed by Dr. Dina Djeghar
 
 An LLM agent that runs a safety sweep of an industrial site: it reads sensor feeds, checks worker PPE and fatigue, compares everything against exposure limits, logs incidents, and briefs the shift supervisor with prioritized corrective actions. A chart dashboard shows the same results visually.
 
@@ -69,6 +70,8 @@ Open `notebooks/ohs_agent_colab.ipynb` in Colab. It runs the agent and shows the
 - This is a decision-support tool. It assists human safety officers and does not replace them or authorize entry into hazardous areas.
 
 ## Ideas for extension
+
+
 
 - Live MQTT ingestion and a time-series store for trend and TWA (time-weighted average) calculations
 - Human-in-the-loop approvals before escalation
