@@ -1,0 +1,446 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}</style><title>OHS Safety Monitor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: summary first (one hero number + severity bar), then readings against limits as small multiples,
+   a trend chart with metric tabs, worker indicators, and the prioritized findings list. */
+:root {
+  --page: #f9f9f7; --surface: #fcfcfb;
+  --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  --good: #0ca30c; --warn: #fab219; --serious: #ec835a; --crit: #d03b3b;
+  --tipshadow: 0 4px 16px rgba(11,11,11,0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0d0d0d; --surface: #1a1a19;
+    --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --tipshadow: 0 4px 16px rgba(0,0,0,0.5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d; --surface: #1a1a19;
+  --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --tipshadow: 0 4px 16px rgba(0,0,0,0.5);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--page); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px; }
+h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 15px; font-weight: 650; margin: 0; }
+h3 { font-size: 14px; font-weight: 600; margin: 0; }
+.sub { color: var(--ink2); margin: 2px 0 0; }
+.top { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 0; }
+.cardhead { display: flex; gap: 8px 16px; justify-content: space-between; align-items: baseline; flex-wrap: wrap; margin-bottom: 12px; }
+.note { color: var(--ink2); font-size: 12px; margin: 0; }
+button {
+  font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+}
+button:hover { background: var(--grid); }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+
+/* severity glyphs: shape + label, never colour alone */
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.g { display: inline-block; width: 10px; height: 10px; flex: none; }
+.g.normal { background: var(--s1); border-radius: 50%; }
+.g.warning { background: var(--warn); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.g.danger { background: var(--serious); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.g.critical { background: var(--crit); border-radius: 2px; }
+
+/* summary */
+.hero { display: grid; grid-template-columns: auto 1fr; gap: 16px 32px; align-items: center; }
+.big { font-size: 64px; line-height: 1; font-weight: 650; letter-spacing: -0.03em; }
+.biglab { color: var(--ink2); margin-top: 4px; }
+.seg { display: flex; gap: 2px; height: 14px; }
+.seg span { border-radius: 4px; min-width: 6px; }
+.counts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 12px; }
+.counts div { display: flex; align-items: baseline; gap: 8px; }
+.counts b { font-size: 20px; font-weight: 650; }
+@media (max-width: 560px) { .hero { grid-template-columns: 1fr; } .big { font-size: 56px; } }
+
+/* readings */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; }
+.panel .cap { color: var(--ink2); font-size: 12px; margin: 0 0 4px; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: inherit; }
+.t { fill: var(--ink2); font-size: 11px; }
+.tm { fill: var(--muted); font-size: 11px; }
+.tl { fill: var(--ink); font-size: 12px; }
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--ink2); font-size: 13px; width: fit-content; }
+.tablewrap { overflow-x: auto; margin-top: 8px; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 13px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--grid); }
+th { color: var(--ink2); font-weight: 600; }
+td.num { font-variant-numeric: tabular-nums; }
+
+/* trend */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 12px 0 4px; }
+.key { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 12px; }
+.key i { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+.trendbox { position: relative; }
+
+/* workers */
+.workers { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.worker { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: grid; gap: 12px; min-width: 0; }
+.wh { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wh .who { display: flex; flex-direction: column; }
+.wh .who span { color: var(--ink2); font-size: 12px; }
+.row { display: grid; grid-template-columns: 76px 1fr; gap: 8px; align-items: center; }
+.row > label { color: var(--ink2); font-size: 12px; }
+.ppes { display: flex; flex-wrap: wrap; gap: 4px; }
+.ppe { font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--grid); color: var(--ink2); }
+.ppe.miss { color: var(--ink); font-weight: 600; border-color: var(--serious); background: color-mix(in srgb, var(--serious) 16%, transparent); }
+.meter { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.track { position: relative; height: 10px; background: var(--grid); border-radius: 5px; }
+.fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.tick { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--ink2); opacity: 0.55; }
+.mval { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }
+
+/* findings */
+.finds { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.find { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.fh { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+.floc { color: var(--ink2); font-size: 12px; }
+.find dl { margin: 0; display: grid; gap: 2px; }
+.find dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
+.find dd { margin: 0; color: var(--ink2); font-size: 13px; }
+textarea { width: 100%; min-height: 120px; margin-top: 10px; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--ink); background: var(--page); border: 1px solid var(--axis); border-radius: 6px; padding: 8px; }
+
+#tip {
+  position: fixed; z-index: 20; pointer-events: none; max-width: 260px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px;
+  padding: 8px 10px; font-size: 12px; box-shadow: var(--tipshadow); display: none;
+}
+#tip .tr { display: flex; justify-content: space-between; gap: 12px; margin-top: 3px; }
+#tip .tb { color: var(--ink2); margin-top: 4px; }
+@media (prefers-reduced-motion: no-preference) { .fill { transition: width .3s ease; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>OHS Safety Monitor</h1>
+      <p class="sub">One sweep by the OHS agent: 3 zones, 3 workers. Simulated data, illustrative limits.</p>
+    </div>
+    <div>
+      <button id="copy" type="button">Copy briefing as CSV</button>
+    </div>
+  </header>
+  <textarea id="csv" hidden readonly aria-label="Briefing CSV"></textarea>
+
+  <section class="card" aria-label="Summary">
+    <div class="hero">
+      <div>
+        <div class="big" id="bigN">0</div>
+        <div class="biglab">open findings to review</div>
+      </div>
+      <div>
+        <div class="seg" id="seg" role="img" aria-label="Findings by severity"></div>
+        <div class="counts" id="counts"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Readings against limits">
+    <div class="cardhead">
+      <h2>Readings against limits</h2>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="panels" id="panels"></div>
+    <details>
+      <summary>View readings as a table</summary>
+      <div class="tablewrap"><table id="rtable"></table></div>
+    </details>
+  </section>
+
+  <section class="card" aria-label="Trend by zone">
+    <div class="cardhead">
+      <h2>Trend by zone</h2>
+      <div class="tabs" id="tabs" role="group" aria-label="Metric"></div>
+    </div>
+    <p class="note" id="trendSub"></p>
+    <div class="keys" id="keys"></div>
+    <div class="trendbox" id="trend"></div>
+    <p class="note">The last 12 simulated readings per zone. Hover or touch the chart to compare zones at one moment.</p>
+  </section>
+
+  <section class="card" aria-label="Workers">
+    <div class="cardhead">
+      <h2>Workers on shift</h2>
+      <p class="note">Fatigue is PERCLOS, the share of time the eyes are mostly closed. Tick marks show the warning levels.</p>
+    </div>
+    <div class="workers" id="workers"></div>
+  </section>
+
+  <section class="card" aria-label="Prioritized findings">
+    <div class="cardhead">
+      <h2>Prioritized findings</h2>
+      <p class="note">Most severe first. Every finding names the standard it is based on and a next step.</p>
+    </div>
+    <ul class="finds" id="finds"></ul>
+  </section>
+
+  <p class="note">Decision support only. Limits are illustrative defaults based on commonly cited OSHA and NIOSH values. Verify against your site and local regulations. The agent assists safety officers and does not authorize entry into hazardous areas.</p>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+(function () {
+  const D = {"zones":[{"zone":"Zone A - Compressor Room","readings":{"co_ppm":45.08,"h2s_ppm":1.26,"lel_pct":0.03,"o2_pct":20.8,"noise_dba":92.63,"temp_c":24.28},"overall":"danger"},{"zone":"Zone B - Welding Bay","readings":{"co_ppm":24.12,"h2s_ppm":0.85,"lel_pct":4.75,"o2_pct":20.73,"noise_dba":80.74,"temp_c":36.2},"overall":"warning"},{"zone":"Zone C - Tank Farm","readings":{"co_ppm":7.08,"h2s_ppm":25.98,"lel_pct":12.9,"o2_pct":18.99,"noise_dba":78.98,"temp_c":29.0},"overall":"danger"}],"workers":[{"worker":"W-101","zone":"Zone A - Compressor Room","task":"general","ppe_missing":[],"ppe_compliant":true,"perclos":0.08,"fatigue_level":"normal","shift_hours":4.5,"overlong_shift":false,"fatigue_basis":"Fatigue indicators: PERCLOS (share of time eyes are >80% closed), blink duration, yawning","ppe_required":["boots","helmet","vest"],"ppe_detected":["boots","helmet","vest"]},{"worker":"W-102","zone":"Zone B - Welding Bay","task":"welding","ppe_missing":["face_shield"],"ppe_compliant":false,"perclos":0.22,"fatigue_level":"warning","shift_hours":9.0,"overlong_shift":false,"fatigue_basis":"Fatigue indicators: PERCLOS (share of time eyes are >80% closed), blink duration, yawning","ppe_required":["boots","face_shield","gloves","helmet"],"ppe_detected":["boots","gloves","helmet"]},{"worker":"W-103","zone":"Zone C - Tank Farm","task":"confined_space","ppe_missing":["gas_monitor","harness"],"ppe_compliant":false,"perclos":0.34,"fatigue_level":"danger","shift_hours":11.0,"overlong_shift":true,"fatigue_basis":"Fatigue indicators: PERCLOS (share of time eyes are >80% closed), blink duration, yawning","ppe_required":["boots","gas_monitor","harness","helmet"],"ppe_detected":["boots","helmet"]}],"thresholds":{"co_ppm":{"name":"Carbon monoxide","unit":"ppm","warn":35,"danger":50,"critical":200,"source":"OSHA PEL 50 ppm (8h TWA); NIOSH REL 35 ppm, ceiling 200 ppm","action":"Ventilate, stop hot work, evacuate if above ceiling, check combustion sources."},"h2s_ppm":{"name":"Hydrogen sulfide","unit":"ppm","warn":10,"danger":20,"critical":50,"source":"OSHA ceiling 20 ppm; NIOSH REL 10 ppm (10 min); IDLH 100 ppm","action":"Don SCBA, evacuate upwind, isolate source, notify emergency response."},"lel_pct":{"name":"Combustible gas","unit":"% LEL","warn":10,"danger":20,"critical":40,"source":"Common industry alarm practice: 10% LEL alert, 20% LEL evacuate","action":"Eliminate ignition sources, ventilate, evacuate area at danger level."},"noise_dba":{"name":"Noise","unit":"dBA","warn":85,"danger":90,"critical":115,"source":"OSHA 1910.95: action level 85 dBA, PEL 90 dBA (8h TWA)","action":"Require hearing protection, limit exposure time, enroll in hearing conservation."},"temp_c":{"name":"Ambient temperature","unit":"C","warn":32,"danger":38,"critical":41,"source":"General heat-stress guidance; use WBGT-based limits for formal assessment","action":"Enforce water/rest/shade cycles, acclimatize workers, watch for heat illness."},"o2_pct":{"name":"Oxygen","unit":"%","low_danger":19.5,"high_danger":23.5,"low_critical":16.0,"source":"OSHA confined space guidance: atmosphere below 19.5% or above 23.5% O2 is hazardous","action":"No entry; ventilate and re-test; use supplied air if entry is unavoidable."}},"history":{"Zone A - Compressor Room":[{"co_ppm":42.7,"h2s_ppm":1.26,"lel_pct":1.77,"o2_pct":20.85,"noise_dba":95.22,"temp_c":26.68},{"co_ppm":43.0,"h2s_ppm":1.12,"lel_pct":2.39,"o2_pct":20.93,"noise_dba":94.01,"temp_c":28.28},{"co_ppm":38.43,"h2s_ppm":0.13,"lel_pct":1.11,"o2_pct":20.83,"noise_dba":94.04,"temp_c":26.93},{"co_ppm":38.04,"h2s_ppm":1.2,"lel_pct":1.34,"o2_pct":21.16,"noise_dba":91.76,"temp_c":28.8},{"co_ppm":45.88,"h2s_ppm":0.95,"lel_pct":2.63,"o2_pct":20.94,"noise_dba":91.96,"temp_c":25.56},{"co_ppm":39.71,"h2s_ppm":1.12,"lel_pct":2.43,"o2_pct":20.68,"noise_dba":88.97,"temp_c":28.96},{"co_ppm":44.78,"h2s_ppm":0.59,"lel_pct":2.5,"o2_pct":20.89,"noise_dba":94.34,"temp_c":28.24},{"co_ppm":35.94,"h2s_ppm":1.18,"lel_pct":2.12,"o2_pct":20.71,"noise_dba":92.09,"temp_c":26.08},{"co_ppm":43.31,"h2s_ppm":0.73,"lel_pct":3.29,"o2_pct":20.6,"noise_dba":95.89,"temp_c":27.36},{"co_ppm":41.63,"h2s_ppm":0.0,"lel_pct":2.36,"o2_pct":20.79,"noise_dba":95.2,"temp_c":28.47},{"co_ppm":46.13,"h2s_ppm":1.22,"lel_pct":3.59,"o2_pct":20.99,"noise_dba":89.86,"temp_c":27.82},{"co_ppm":45.08,"h2s_ppm":1.26,"lel_pct":0.03,"o2_pct":20.8,"noise_dba":92.63,"temp_c":24.28}],"Zone B - Welding Bay":[{"co_ppm":25.44,"h2s_ppm":1.81,"lel_pct":2.55,"o2_pct":20.88,"noise_dba":78.97,"temp_c":36.18},{"co_ppm":20.67,"h2s_ppm":0.79,"lel_pct":3.04,"o2_pct":20.9,"noise_dba":75.36,"temp_c":38.2},{"co_ppm":18.2,"h2s_ppm":0.93,"lel_pct":1.85,"o2_pct":20.86,"noise_dba":82.21,"temp_c":37.89},{"co_ppm":23.73,"h2s_ppm":1.32,"lel_pct":3.13,"o2_pct":21.03,"noise_dba":79.04,"temp_c":36.23},{"co_ppm":22.97,"h2s_ppm":1.14,"lel_pct":2.57,"o2_pct":20.9,"noise_dba":80.29,"temp_c":39.02},{"co_ppm":14.31,"h2s_ppm":0.81,"lel_pct":1.99,"o2_pct":21.04,"noise_dba":76.99,"temp_c":38.76},{"co_ppm":20.43,"h2s_ppm":1.12,"lel_pct":2.4,"o2_pct":20.94,"noise_dba":76.71,"temp_c":36.42},{"co_ppm":20.54,"h2s_ppm":1.18,"lel_pct":1.45,"o2_pct":20.89,"noise_dba":77.32,"temp_c":31.91},{"co_ppm":20.94,"h2s_ppm":0.42,"lel_pct":1.93,"o2_pct":21.04,"noise_dba":80.57,"temp_c":33.45},{"co_ppm":17.52,"h2s_ppm":1.31,"lel_pct":3.09,"o2_pct":20.5,"noise_dba":81.27,"temp_c":37.02},{"co_ppm":26.6,"h2s_ppm":1.6,"lel_pct":1.85,"o2_pct":20.93,"noise_dba":80.39,"temp_c":35.87},{"co_ppm":24.12,"h2s_ppm":0.85,"lel_pct":4.75,"o2_pct":20.73,"noise_dba":80.74,"temp_c":36.2}],"Zone C - Tank Farm":[{"co_ppm":8.44,"h2s_ppm":20.92,"lel_pct":9.06,"o2_pct":19.33,"noise_dba":79.84,"temp_c":25.56},{"co_ppm":9.49,"h2s_ppm":28.77,"lel_pct":10.22,"o2_pct":19.36,"noise_dba":74.58,"temp_c":28.15},{"co_ppm":9.98,"h2s_ppm":25.2,"lel_pct":12.82,"o2_pct":19.35,"noise_dba":77.71,"temp_c":26.1},{"co_ppm":5.96,"h2s_ppm":27.06,"lel_pct":12.23,"o2_pct":19.21,"noise_dba":77.46,"temp_c":25.88},{"co_ppm":10.85,"h2s_ppm":24.95,"lel_pct":10.78,"o2_pct":19.2,"noise_dba":72.44,"temp_c":28.23},{"co_ppm":9.67,"h2s_ppm":28.83,"lel_pct":10.66,"o2_pct":19.29,"noise_dba":81.12,"temp_c":29.24},{"co_ppm":4.25,"h2s_ppm":23.42,"lel_pct":11.94,"o2_pct":19.14,"noise_dba":74.3,"temp_c":26.98},{"co_ppm":8.47,"h2s_ppm":20.22,"lel_pct":10.89,"o2_pct":19.31,"noise_dba":81.0,"temp_c":26.7},{"co_ppm":4.71,"h2s_ppm":24.5,"lel_pct":9.64,"o2_pct":19.04,"noise_dba":78.02,"temp_c":28.21},{"co_ppm":6.72,"h2s_ppm":23.65,"lel_pct":9.64,"o2_pct":19.24,"noise_dba":75.69,"temp_c":24.7},{"co_ppm":3.28,"h2s_ppm":17.31,"lel_pct":10.25,"o2_pct":19.23,"noise_dba":80.17,"temp_c":26.59},{"co_ppm":7.08,"h2s_ppm":25.98,"lel_pct":12.9,"o2_pct":18.99,"noise_dba":78.98,"temp_c":29.0}]},"findings":[{"level":"critical","location":"Zone C - Tank Farm","title":"Worker W-103 (confined space): missing PPE: gas_monitor, harness; fatigue danger (PERCLOS 0.34); shift length 11.0 h","basis":"Co-occurring PPE gap, fatigue and shift-length indicators. Fatigue indicators: PERCLOS (share of time eyes are >80% closed), blink duration, yawning","action":"Pull from the task until PPE is corrected, enforce rest and rotation, supervisor check-in."},{"level":"danger","location":"Zone A - Compressor Room","title":"Noise 92.63 dBA","basis":"OSHA 1910.95: action level 85 dBA, PEL 90 dBA (8h TWA)","action":"Require hearing protection, limit exposure time, enroll in hearing conservation."},{"level":"danger","location":"Zone C - Tank Farm","title":"Hydrogen sulfide 25.98 ppm","basis":"OSHA ceiling 20 ppm; NIOSH REL 10 ppm (10 min); IDLH 100 ppm","action":"Don SCBA, evacuate upwind, isolate source, notify emergency response."},{"level":"danger","location":"Zone C - Tank Farm","title":"Oxygen 18.99 %","basis":"OSHA confined space guidance: atmosphere below 19.5% or above 23.5% O2 is hazardous","action":"No entry; ventilate and re-test; use supplied air if entry is unavoidable."},{"level":"danger","location":"Zone B - Welding Bay","title":"Worker W-102 (welding): missing PPE: face_shield; fatigue warning (PERCLOS 0.22)","basis":"Co-occurring PPE gap, fatigue and shift-length indicators. Fatigue indicators: PERCLOS (share of time eyes are >80% closed), blink duration, yawning","action":"Pull from the task until PPE is corrected, enforce rest and rotation, supervisor check-in."},{"level":"warning","location":"Zone A - Compressor Room","title":"Carbon monoxide 45.08 ppm","basis":"OSHA PEL 50 ppm (8h TWA); NIOSH REL 35 ppm, ceiling 200 ppm","action":"Ventilate, stop hot work, evacuate if above ceiling, check combustion sources."},{"level":"warning","location":"Zone B - Welding Bay","title":"Ambient temperature 36.2 C","basis":"General heat-stress guidance; use WBGT-based limits for formal assessment","action":"Enforce water/rest/shade cycles, acclimatize workers, watch for heat illness."},{"level":"warning","location":"Zone C - Tank Farm","title":"Combustible gas 12.9 % LEL","basis":"Common industry alarm practice: 10% LEL alert, 20% LEL evacuate","action":"Eliminate ignition sources, ventilate, evacuate area at danger level."}]};
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const LV = ['normal', 'warning', 'danger', 'critical'];
+  const LNAME = { normal: 'Normal', warning: 'Warning', danger: 'Danger', critical: 'Critical' };
+  const LCOL = { normal: 'var(--s1)', warning: 'var(--warn)', danger: 'var(--serious)', critical: 'var(--crit)' };
+  const MET = ['co_ppm', 'h2s_ppm', 'lel_pct', 'o2_pct', 'noise_dba', 'temp_c'];
+  const ZCOL = ['var(--s1)', 'var(--s2)', 'var(--s3)'];
+  const short = (z) => z.replace(/^Zone [A-Z] - /, '');
+  const fmt = (v) => String(Math.round(v * 100) / 100);
+
+  function level(k, v) {
+    const t = D.thresholds[k];
+    if (k === 'o2_pct') {
+      if (v < t.low_critical) return 'critical';
+      if (v < t.low_danger || v > t.high_danger) return 'danger';
+      return 'normal';
+    }
+    if (v >= t.critical) return 'critical';
+    if (v >= t.danger) return 'danger';
+    if (v >= t.warn) return 'warning';
+    return 'normal';
+  }
+  const chip = (l) => `<span class="chip"><i class="g ${l}"></i>${LNAME[l]}</span>`;
+
+  function ticks(min, max, n) {
+    const raw = (max - min) / n, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p;
+    const step = (m < 1.5 ? 1 : m < 3 ? 2 : m < 7 ? 5 : 10) * p, out = [];
+    for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(+v.toFixed(6));
+    return out;
+  }
+  function barPath(x0, y, w, h, r) {
+    if (w <= 0) return '';
+    r = Math.min(r, w, h / 2);
+    return `M${x0},${y}H${x0 + w - r}Q${x0 + w},${y} ${x0 + w},${y + r}V${y + h - r}Q${x0 + w},${y + h} ${x0 + w - r},${y + h}H${x0}Z`;
+  }
+
+  /* ---------- summary ---------- */
+  const counts = { critical: 0, danger: 0, warning: 0 };
+  D.findings.forEach((f) => counts[f.level]++);
+  $('#bigN').textContent = D.findings.length;
+  $('#seg').innerHTML = ['critical', 'danger', 'warning'].filter((l) => counts[l]).map((l) =>
+    `<span style="flex:${counts[l]};background:${LCOL[l]}"></span>`).join('');
+  $('#counts').innerHTML = ['critical', 'danger', 'warning'].map((l) =>
+    `<div><b>${counts[l]}</b>${chip(l)}</div>`).join('');
+
+  /* ---------- tooltip ---------- */
+  const tip = $('#tip');
+  function showTip(html, x, y) {
+    tip.innerHTML = html; tip.style.display = 'block';
+    const r = tip.getBoundingClientRect();
+    let left = x + 14, top = y + 14;
+    if (left + r.width > window.innerWidth - 8) left = x - r.width - 14;
+    if (top + r.height > window.innerHeight - 8) top = y - r.height - 14;
+    tip.style.left = Math.max(8, left) + 'px'; tip.style.top = Math.max(8, top) + 'px';
+  }
+  const hideTip = () => { tip.style.display = 'none'; };
+  function onPointer(e) {
+    const el = e.target.closest && e.target.closest('[data-tip]');
+    if (el) showTip(el.getAttribute('data-tip'), e.clientX, e.clientY); else if (!e.target.closest('#trend svg')) hideTip();
+  }
+  document.addEventListener('pointermove', onPointer);
+  document.addEventListener('pointerdown', onPointer);
+  document.addEventListener('pointerleave', hideTip);
+
+  /* ---------- readings against limits ---------- */
+  $('#legend').innerHTML = LV.map(chip).join('') + '<span class="note">Bar colour shows severity. Ticks mark the warning and limit values.</span>';
+
+  function panel(k) {
+    const t = D.thresholds[k];
+    const rows = D.zones.map((z) => ({ zone: z.zone, v: z.readings[k], l: level(k, z.readings[k]) }));
+    const W = 380, L = 108, R = 100, rowH = 32, T = 10, B = 24, H = T + rows.length * rowH + B, pw = W - L - R;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t.name)} by zone">`;
+    let x, cap;
+    if (k === 'o2_pct') {
+      const lo = 17, hi = 25; x = (v) => L + pw * (v - lo) / (hi - lo);
+      cap = `Safe band ${t.low_danger} to ${t.high_danger} ${t.unit}`;
+      s += `<rect x="${x(t.low_danger)}" y="${T}" width="${x(t.high_danger) - x(t.low_danger)}" height="${rows.length * rowH}" fill="var(--good)" opacity="0.14"/>`;
+      ticks(lo, hi, 4).forEach((v) => { s += `<text class="tm" x="${x(v)}" y="${H - 6}" text-anchor="middle">${v}</text>`; });
+      rows.forEach((r, i) => {
+        const cy = T + i * rowH + rowH / 2;
+        s += `<text class="t" x="0" y="${cy + 4}">${esc(short(r.zone))}</text>`;
+        s += `<line x1="${L}" x2="${W - R}" y1="${cy}" y2="${cy}" stroke="var(--grid)"/>`;
+        s += `<circle cx="${x(r.v)}" cy="${cy}" r="6" fill="${LCOL[r.l]}" stroke="var(--surface)" stroke-width="2"/>`;
+      });
+    } else {
+      const maxv = Math.max(...rows.map((r) => r.v)), hi = Math.max(t.danger * 1.5, maxv * 1.15);
+      x = (v) => L + pw * v / hi;
+      cap = `Warning ${t.warn}, limit ${t.danger} ${t.unit}`;
+      s += `<line x1="${L}" x2="${L}" y1="${T}" y2="${T + rows.length * rowH}" stroke="var(--axis)"/>`;
+      [[t.warn, 'var(--warn)'], [t.danger, 'var(--serious)']].forEach(([v, c]) => {
+        s += `<line x1="${x(v)}" x2="${x(v)}" y1="${T - 2}" y2="${T + rows.length * rowH + 2}" stroke="${c}" stroke-width="1.5"/>`;
+      });
+      ticks(0, hi, 3).forEach((v) => { s += `<text class="tm" x="${x(v)}" y="${H - 6}" text-anchor="middle">${v}</text>`; });
+      rows.forEach((r, i) => {
+        const y = T + i * rowH + (rowH - 14) / 2;
+        s += `<text class="t" x="0" y="${y + 11}">${esc(short(r.zone))}</text>`;
+        s += `<path d="${barPath(L, y, x(r.v) - L, 14, 4)}" fill="${LCOL[r.l]}"/>`;
+      });
+    }
+    rows.forEach((r, i) => {
+      const cy = T + i * rowH + rowH / 2;
+      s += `<text x="${W - R + 10}" y="${cy + 4}"><tspan class="tl" font-weight="600">${fmt(r.v)}</tspan>` +
+        (r.l !== 'normal' ? `<tspan class="t" dx="6">${LNAME[r.l]}</tspan>` : '') + `</text>`;
+      const tt = `<b>${esc(short(r.zone))}</b><div class="tr"><span>${esc(t.name)}</span><span>${fmt(r.v)} ${esc(t.unit)}</span></div><div class="tr">${chip(r.l)}</div><div class="tb">${esc(t.source)}</div>`;
+      s += `<rect x="0" y="${T + i * rowH}" width="${W}" height="${rowH}" fill="transparent" data-tip="${esc(tt)}"/>`;
+    });
+    s += '</svg>';
+    return `<div class="panel"><h3>${esc(t.name)} <span class="note">(${esc(t.unit)})</span></h3><p class="cap">${esc(cap)}</p>${s}</div>`;
+  }
+  $('#panels').innerHTML = MET.map(panel).join('');
+
+  $('#rtable').innerHTML = '<thead><tr><th>Zone</th>' + MET.map((k) => `<th>${esc(D.thresholds[k].name)} (${esc(D.thresholds[k].unit)})</th>`).join('') + '</tr></thead><tbody>' +
+    D.zones.map((z) => `<tr><td>${esc(short(z.zone))}</td>` + MET.map((k) => {
+      const l = level(k, z.readings[k]);
+      return `<td class="num">${fmt(z.readings[k])} ${l === 'normal' ? '' : chip(l)}</td>`;
+    }).join('') + '</tr>').join('') + '</tbody>';
+
+  /* ---------- trend ---------- */
+  let cur = 'co_ppm';
+  $('#tabs').innerHTML = MET.map((k) => `<button type="button" data-k="${k}" aria-pressed="${k === cur}">${esc(D.thresholds[k].name)}</button>`).join('');
+  $('#tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    cur = b.dataset.k;
+    document.querySelectorAll('#tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.k === cur)));
+    drawTrend();
+  });
+  $('#keys').innerHTML = D.zones.map((z, i) => `<span class="key"><i style="background:${ZCOL[i]}"></i>${esc(short(z.zone))}</span>`).join('');
+
+  function drawTrend() {
+    const k = cur, t = D.thresholds[k];
+    const series = D.zones.map((z, i) => ({ zone: z.zone, color: ZCOL[i], vals: D.history[z.zone].map((r) => r[k]) }));
+    const n = series[0].vals.length, all = series.flatMap((s) => s.vals);
+    const W = Math.max(300, Math.round($('#trend').clientWidth || 720)), H = W < 520 ? 250 : 300, L = 46, R = 18, T = 14, B = 30;
+    let lo = 0, hi;
+    if (k === 'o2_pct') { lo = 17; hi = 25; } else { hi = Math.max(t.danger * 1.25, Math.max(...all) * 1.1); }
+    const x = (i) => L + (W - L - R) * i / (n - 1), y = (v) => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+    const lines = k === 'o2_pct'
+      ? [{ v: t.low_danger, label: `Minimum ${t.low_danger} ${t.unit}`, c: 'var(--serious)' }, { v: t.high_danger, label: `Maximum ${t.high_danger} ${t.unit}`, c: 'var(--serious)' }]
+      : [{ v: t.warn, label: `Warning ${t.warn}`, c: 'var(--warn)' }, { v: t.danger, label: `Limit ${t.danger} ${t.unit}`, c: 'var(--serious)' }];
+    $('#trendSub').textContent = k === 'o2_pct'
+      ? `Safe band ${t.low_danger} to ${t.high_danger} ${t.unit}. ${t.source}`
+      : `Warning ${t.warn}, limit ${t.danger} ${t.unit}. ${t.source}`;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t.name)} trend by zone">`;
+    ticks(lo, hi, 4).forEach((v) => {
+      s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text class="tm" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    });
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(lo)}" y2="${y(lo)}" stroke="var(--axis)"/>`;
+    lines.forEach((ln, idx) => {
+      if (ln.v < lo || ln.v > hi) return;
+      s += `<line x1="${L}" x2="${W - R}" y1="${y(ln.v)}" y2="${y(ln.v)}" stroke="${ln.c}" stroke-width="1.5"/>`;
+      const close = lines.length === 2 && Math.abs(y(lines[0].v) - y(lines[1].v)) < 15;
+      if (!(close && idx === 0)) s += `<text class="t" x="${L + 6}" y="${y(ln.v) - 5}">${esc(ln.label)}</text>`;
+    });
+    [0, Math.floor((n - 1) / 2), n - 1].forEach((i) => {
+      s += `<text class="tm" x="${x(i)}" y="${H - 8}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${i === n - 1 ? 'now' : '-' + (n - 1 - i)}</text>`;
+    });
+    series.forEach((sr) => {
+      s += `<polyline fill="none" stroke="${sr.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${sr.vals.map((v, i) => x(i) + ',' + y(v)).join(' ')}"/>`;
+      const last = sr.vals.length - 1;
+      s += `<circle cx="${x(last)}" cy="${y(sr.vals[last])}" r="4" fill="${sr.color}" stroke="var(--surface)" stroke-width="2"/>`;
+    });
+    s += `<line id="xl" y1="${T}" y2="${H - B}" stroke="var(--ink2)" stroke-width="1" visibility="hidden"/>`;
+    series.forEach((sr, i) => { s += `<circle id="xd${i}" r="5" fill="${sr.color}" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`; });
+    s += `<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="hit"/></svg>`;
+    $('#trend').innerHTML = s;
+    const svg = $('#trend svg');
+    function move(e) {
+      const r = svg.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width * W;
+      const i = Math.max(0, Math.min(n - 1, Math.round((px - L) / (W - L - R) * (n - 1))));
+      $('#xl').setAttribute('x1', x(i)); $('#xl').setAttribute('x2', x(i)); $('#xl').setAttribute('visibility', 'visible');
+      series.forEach((sr, j) => {
+        const d = $('#xd' + j); d.setAttribute('cx', x(i)); d.setAttribute('cy', y(sr.vals[i])); d.setAttribute('visibility', 'visible');
+      });
+      const head = i === n - 1 ? 'Latest reading' : `${n - 1 - i} readings ago`;
+      showTip(`<b>${head}</b>` + series.map((sr) => {
+        const l = level(k, sr.vals[i]);
+        return `<div class="tr"><span><i class="g ${l}" style="margin-right:6px"></i>${esc(short(sr.zone))}</span><span>${fmt(sr.vals[i])} ${esc(t.unit)}</span></div>`;
+      }).join(''), e.clientX, e.clientY);
+    }
+    function leave() {
+      $('#xl').setAttribute('visibility', 'hidden');
+      series.forEach((_, j) => $('#xd' + j).setAttribute('visibility', 'hidden'));
+      hideTip();
+    }
+    svg.addEventListener('pointermove', move);
+    svg.addEventListener('pointerdown', move);
+    svg.addEventListener('pointerleave', leave);
+  }
+  drawTrend();
+  let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(drawTrend, 150); });
+
+  /* ---------- workers ---------- */
+  function meter(v, max, tickVals, l, label) {
+    return `<div class="meter"><div class="track"><div class="fill" style="width:${Math.min(100, v / max * 100)}%;background:${LCOL[l]}"></div>` +
+      tickVals.map((tv) => `<span class="tick" style="left:${tv / max * 100}%"></span>`).join('') + `</div><span class="mval">${label}</span></div>`;
+  }
+  $('#workers').innerHTML = D.workers.map((w) => {
+    const fl = w.fatigue_level;
+    const sl = w.shift_hours > 10 ? 'warning' : 'normal';
+    let overall = 'normal';
+    if (w.ppe_missing.length && fl === 'danger') overall = 'critical';
+    else if (w.ppe_missing.length) overall = 'danger';
+    else if (fl !== 'normal' || sl !== 'normal') overall = 'warning';
+    const ppe = w.ppe_required.map((p) => {
+      const miss = w.ppe_missing.indexOf(p) >= 0, name = p.replace(/_/g, ' ');
+      return `<span class="ppe ${miss ? 'miss' : ''}">${miss ? '&#10007; ' : '&#10003; '}${esc(name)}</span>`;
+    }).join('');
+    return `<article class="worker"><div class="wh"><div class="who"><h3>${esc(w.worker)}</h3><span>${esc(short(w.zone))}, ${esc(w.task.replace(/_/g, ' '))}</span></div>${chip(overall)}</div>` +
+      `<div class="row"><label>PPE</label><div class="ppes">${ppe}</div></div>` +
+      `<div class="row"><label>Fatigue</label>${meter(w.perclos, 0.5, [0.15, 0.3], fl, `PERCLOS ${w.perclos.toFixed(2)}`)}</div>` +
+      `<div class="row"><label>Shift</label>${meter(w.shift_hours, 12, [10], sl, `${w.shift_hours} hours`)}</div></article>`;
+  }).join('');
+
+  /* ---------- findings ---------- */
+  $('#finds').innerHTML = D.findings.map((f) =>
+    `<li class="find"><div class="fh">${chip(f.level)}<span class="floc">${esc(short(f.location))}</span></div><h3>${esc(f.title)}</h3>` +
+    `<dl><dt>Why it matters</dt><dd>${esc(f.basis)}</dd><dt>Next step</dt><dd>${esc(f.action)}</dd></dl></li>`).join('');
+
+  /* ---------- CSV copy (downloads are blocked in the viewer, so copy) ---------- */
+  function csv() {
+    const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+    return ['severity,location,finding,basis,action'].concat(D.findings.map((f) =>
+      [f.level, f.location, f.title, f.basis, f.action].map(q).join(','))).join('\n');
+  }
+  $('#copy').addEventListener('click', async () => {
+    const b = $('#copy'), text = csv();
+    try {
+      await navigator.clipboard.writeText(text);
+      b.textContent = 'Copied';
+    } catch (e) {
+      const ta = $('#csv'); ta.hidden = false; ta.value = text; ta.focus(); ta.select();
+      b.textContent = 'Select the text below and copy';
+    }
+    setTimeout(() => { b.textContent = 'Copy briefing as CSV'; }, 2500);
+  });
+})();
+</script>

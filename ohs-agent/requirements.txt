@@ -1,0 +1,5 @@
+anthropic>=0.40.0
+streamlit>=1.30
+altair>=5.0
+pandas>=2.0
+pytest>=8.0
